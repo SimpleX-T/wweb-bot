@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: whatsapp-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile.bun
+    plan: free # Change to 'starter' for production ($7/month)
+    region: oregon # Options: oregon, frankfurt, singapore, ohio
+    branch: main
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: HOST
+        value: 0.0.0.0
+      - key: MONGODB_URI
+        sync: false # Set this manually in Render dashboard for security
+      - key: CORS_ORIGIN
+        value: https://whatsapp-bot.onrender.com # Update with your actual URL
+      - key: LOG_LEVEL
+        value: info
+
+    # Uncomment for paid plans with persistent storage
+    # disk:
+    #   name: whatsapp-session
+    #   mountPath: /app/.wwebjs_auth
+    #   sizeGB: 1

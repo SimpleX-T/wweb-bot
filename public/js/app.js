@@ -88,8 +88,14 @@ class WhatsAppDashboard {
     // Toast
     this.toastContainer = document.getElementById("toast-container");
 
+    // Media Preview Modal
+    this.mediaPreviewModal = document.getElementById("media-preview-modal");
+    this.mediaPreviewContent = document.getElementById("media-preview-content");
+    this.mediaPreviewClose = document.getElementById("media-preview-close");
+
     // State
     this.replyingTo = null;
+    this.captionText = "";
   }
 
   bindEvents() {
@@ -167,6 +173,14 @@ class WhatsAppDashboard {
     this.closeModalBtn.addEventListener("click", () => this.closeModal());
     this.modalOverlay.addEventListener("click", (e) => {
       if (e.target === this.modalOverlay) this.closeModal();
+    });
+
+    // Media preview modal
+    this.mediaPreviewClose.addEventListener("click", () =>
+      this.closeMediaPreview()
+    );
+    this.mediaPreviewModal.addEventListener("click", (e) => {
+      if (e.target === this.mediaPreviewModal) this.closeMediaPreview();
     });
 
     // Init button (for reconnect)
@@ -516,7 +530,7 @@ class WhatsAppDashboard {
         this.currentChat?.chatId === id ? "active" : ""
       }" data-chat-id="${id}">
         <div class="chat-item-avatar">
-          <img src="${pfp}" alt="${name}" class="avatar"/>
+          <img src="${pfp}" alt="${name[0].toUpperCase()}" class="avatar"/>
         </div>
         <div class="chat-item-content">
           <div class="chat-item-header">
@@ -584,11 +598,21 @@ class WhatsAppDashboard {
     // Mark as read if in watchlist
     if (this.currentTab === "watchlist") {
       try {
-        await api.markAsRead(chatId);
-        chat.unreadCount = 0;
+        // Call the watchlist-specific markAsRead endpoint
+        await api.request(`/watchlist/${encodeURIComponent(chatId)}/read`, {
+          method: "POST",
+        });
+
+        // Update the local watchlist item
+        const watchlistItem = this.watchlist.find((c) => c.chatId === chatId);
+        if (watchlistItem) {
+          watchlistItem.unreadCount = 0;
+        }
+
+        // Re-render the chat list to show updated unread count
         this.renderChatList();
       } catch (err) {
-        // Ignore error
+        console.error("Failed to mark as read:", err);
       }
     }
 
@@ -657,6 +681,20 @@ class WhatsAppDashboard {
           this.handleMessageAction(action, messageId);
         }
       }
+
+      // Handle media preview clicks
+      const mediaImage = e.target.closest(".media-image");
+      const mediaVideo = e.target.closest(".media-video");
+      const mediaAudio = e.target.closest(".media-audio");
+
+      if (mediaImage || mediaVideo || mediaAudio) {
+        const mediaEl = mediaImage || mediaVideo || mediaAudio;
+        const mediaUrl = mediaEl.dataset.mediaUrl;
+        const mediaType = mediaEl.dataset.mediaType;
+        if (mediaUrl && mediaType) {
+          this.showMediaPreview(mediaUrl, mediaType);
+        }
+      }
     });
   }
 
@@ -669,15 +707,15 @@ class WhatsAppDashboard {
 
     // Render quoted message if present
     let quotedHtml = "";
-    if (msg.hasQuotedMsg) {
+    if (msg.hasQuotedMsg && msg.quotedMsg) {
+      const quotedBody =
+        msg.quotedMsg.body || (msg.quotedMsg.hasMedia ? "[Media]" : "");
       quotedHtml = `
         <div class="quoted-message">
           <div class="quoted-message-author">${
             isOutgoing ? "You" : author || "Unknown"
           }</div>
-          <div class="quoted-message-text">${this.escapeHtml(
-            msg.quotedMsg?.body || "[Media]"
-          )}</div>
+          <div class="quoted-message-text">${this.escapeHtml(quotedBody)}</div>
         </div>
       `;
     }
@@ -722,7 +760,7 @@ class WhatsAppDashboard {
         ${quotedHtml}
         ${mediaHtml}
         ${
-          msg.body
+          msg.body && !msg.hasMedia
             ? `<div class="message-body">${this.formatMessageBody(
                 msg.body
               )}</div>`
@@ -756,6 +794,7 @@ class WhatsAppDashboard {
   renderMedia(msg) {
     const { media } = msg;
     const messageId = msg.id;
+    const caption = msg.body || "";
 
     // Get media URL - either from media.data (base64) or fetch from API
     const getMediaUrl = () => {
@@ -768,25 +807,27 @@ class WhatsAppDashboard {
     const mediaUrl = getMediaUrl();
     const mimetype = media.mimetype || "";
 
+    let mediaHtml = "";
+
     if (mimetype.startsWith("image/")) {
-      return `
+      mediaHtml = `
         <div class="message-media">
-          <img src="${mediaUrl}" alt="Image" class="media-image" loading="lazy" />
+          <img src="${mediaUrl}" alt="Image" class="media-image" loading="lazy" data-media-url="${mediaUrl}" data-media-type="image" />
         </div>
       `;
     } else if (mimetype.startsWith("video/")) {
-      return `
+      mediaHtml = `
         <div class="message-media">
-          <video controls class="media-video">
+          <video class="media-video" data-media-url="${mediaUrl}" data-media-type="video">
             <source src="${mediaUrl}" type="${mimetype}">
             Your browser does not support the video tag.
           </video>
         </div>
       `;
     } else if (mimetype.startsWith("audio/")) {
-      return `
+      mediaHtml = `
         <div class="message-media">
-          <audio controls class="media-audio">
+          <audio controls class="media-audio" data-media-url="${mediaUrl}" data-media-type="audio">
             <source src="${mediaUrl}" type="${mimetype}">
             Your browser does not support the audio tag.
           </audio>
@@ -794,7 +835,7 @@ class WhatsAppDashboard {
       `;
     } else {
       // Generic file
-      return `
+      mediaHtml = `
         <div class="message-media">
           <a href="${mediaUrl}" download class="media-file">
             <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
@@ -805,6 +846,18 @@ class WhatsAppDashboard {
         </div>
       `;
     }
+
+    // Add caption if present
+    if (
+      caption &&
+      (mimetype.startsWith("image/") || mimetype.startsWith("video/"))
+    ) {
+      mediaHtml += `<div class="media-caption">${this.escapeHtml(
+        caption
+      )}</div>`;
+    }
+
+    return mediaHtml;
   }
 
   async handleMediaSelect(e) {
@@ -812,7 +865,38 @@ class WhatsAppDashboard {
     if (!file || !this.currentChat) return;
 
     const chatId = this.currentChat.chatId || this.currentChat.id;
+    const isImageOrVideo =
+      file.type.startsWith("image/") || file.type.startsWith("video/");
 
+    // If it's an image or video, show caption modal
+    if (isImageOrVideo) {
+      this.openModal(
+        "Add Caption (Optional)",
+        `
+        <div class="form-group">
+          <label class="form-label">Caption</label>
+          <textarea id="media-caption-input" class="form-input" placeholder="Add a caption..." rows="3" style="width:100%; resize:vertical;"></textarea>
+        </div>
+        <button class="btn btn-primary" id="send-media-btn" style="width:100%;">Send</button>
+        `
+      );
+
+      document
+        .getElementById("send-media-btn")
+        .addEventListener("click", async () => {
+          const caption = document
+            .getElementById("media-caption-input")
+            .value.trim();
+          this.closeModal();
+          await this.sendMediaFile(file, chatId, caption);
+        });
+    } else {
+      // For other media types, send directly
+      await this.sendMediaFile(file, chatId, "");
+    }
+  }
+
+  async sendMediaFile(file, chatId, caption = "") {
     try {
       // Show loading toast
       this.toast("Uploading media...", "info");
@@ -825,6 +909,7 @@ class WhatsAppDashboard {
         base64: base64.split(",")[1], // Remove data:image/jpeg;base64, prefix
         mimetype: file.type,
         filename: file.name,
+        caption: caption,
       });
 
       this.toast("Media sent successfully", "success");
@@ -1061,12 +1146,16 @@ class WhatsAppDashboard {
         timestamp: data.message.timestamp,
         fromMe: data.message.fromMe,
       };
-      if (
-        !data.message.fromMe &&
-        data.chatId !== (this.currentChat?.chatId || this.currentChat?.id)
-      ) {
+
+      // Only increment unread count if:
+      // 1. Message is not from me
+      // 2. AND this chat is not currently open
+      const isCurrentChat =
+        data.chatId === (this.currentChat?.chatId || this.currentChat?.id);
+      if (!data.message.fromMe && !isCurrentChat) {
         item.unreadCount = (item.unreadCount || 0) + 1;
       }
+
       this.renderChatList();
     }
 
@@ -1572,6 +1661,53 @@ class WhatsAppDashboard {
     if (!text) return "";
     if (text.length <= length) return text;
     return text.substring(0, length) + "...";
+  }
+
+  // Media Preview Methods
+  showMediaPreview(mediaUrl, mediaType) {
+    const contentEl = this.mediaPreviewContent;
+
+    // Clear previous content (except close button)
+    const closeBtn = contentEl.querySelector(".media-preview-close");
+    contentEl.innerHTML = "";
+    contentEl.appendChild(closeBtn);
+
+    // Create media element based on type
+    let mediaEl;
+    if (mediaType === "image") {
+      mediaEl = document.createElement("img");
+      mediaEl.src = mediaUrl;
+      mediaEl.alt = "Preview";
+    } else if (mediaType === "video") {
+      mediaEl = document.createElement("video");
+      mediaEl.controls = true;
+      mediaEl.autoplay = true;
+      const source = document.createElement("source");
+      source.src = mediaUrl;
+      mediaEl.appendChild(source);
+    } else if (mediaType === "audio") {
+      mediaEl = document.createElement("audio");
+      mediaEl.controls = true;
+      mediaEl.autoplay = true;
+      const source = document.createElement("source");
+      source.src = mediaUrl;
+      mediaEl.appendChild(source);
+    }
+
+    if (mediaEl) {
+      contentEl.insertBefore(mediaEl, closeBtn);
+      this.mediaPreviewModal.classList.add("active");
+    }
+  }
+
+  closeMediaPreview() {
+    this.mediaPreviewModal.classList.remove("active");
+
+    // Stop any playing media
+    const video = this.mediaPreviewContent.querySelector("video");
+    const audio = this.mediaPreviewContent.querySelector("audio");
+    if (video) video.pause();
+    if (audio) audio.pause();
   }
 }
 

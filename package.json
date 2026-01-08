@@ -6,7 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
+    "start:bun": "bun run server.js",
     "dev": "nodemon server.js",
+    "dev:bun": "bun --watch server.js",
     "test": "jest",
     "lint": "eslint src/"
   },

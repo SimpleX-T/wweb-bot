@@ -191,16 +191,32 @@ async function handleMessage(message) {
   const watchlistItem = await Watchlist.findOne({ chatId, isActive: true });
 
   if (watchlistItem) {
-    // Update last message
+    // Update last message and increment unread count
     await watchlistItem.updateLastMessage(message);
 
     // Log message to database
     await Message.logMessage(message);
 
-    // Broadcast to WebSocket
+    // Broadcast to WebSocket with formatted message
+    const formattedMessage = formatMessage(message);
+
+    // Fetch quoted message if present for proper display
+    if (message.hasQuotedMsg) {
+      try {
+        const quotedMsg = await message.getQuotedMessage();
+        formattedMessage.quotedMsg = {
+          body: quotedMsg.body || "",
+          type: quotedMsg.type,
+          hasMedia: quotedMsg.hasMedia || false,
+        };
+      } catch (err) {
+        logger.warn(`Could not fetch quoted message: ${err.message}`);
+      }
+    }
+
     broadcast(WS_EVENTS.WATCHLIST_MESSAGE, {
       chatId,
-      message: formatMessage(message),
+      message: formattedMessage,
     });
   }
 
@@ -221,9 +237,25 @@ async function handleMessageCreate(message) {
       await watchlistItem.updateLastMessage(message);
       await Message.logMessage(message);
 
+      // Format message with quoted message data if present
+      const formattedMessage = formatMessage(message);
+
+      if (message.hasQuotedMsg) {
+        try {
+          const quotedMsg = await message.getQuotedMessage();
+          formattedMessage.quotedMsg = {
+            body: quotedMsg.body || "",
+            type: quotedMsg.type,
+            hasMedia: quotedMsg.hasMedia || false,
+          };
+        } catch (err) {
+          logger.warn(`Could not fetch quoted message: ${err.message}`);
+        }
+      }
+
       broadcast(WS_EVENTS.WATCHLIST_MESSAGE, {
         chatId,
-        message: formatMessage(message),
+        message: formattedMessage,
       });
     }
   }

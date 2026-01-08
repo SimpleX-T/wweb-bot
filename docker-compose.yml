@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    container_name: whatsapp-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongo:27017/whatsapp-bot
+      - PORT=3000
+      - HOST=0.0.0.0
+      - CORS_ORIGIN=*
+      - LOG_LEVEL=info
+    volumes:
+      - ./.wwebjs_auth:/app/.wwebjs_auth
+      - ./.wwebjs_cache:/app/.wwebjs_cache
+      - ./logs:/app/logs
+    depends_on:
+      - mongo
+    networks:
+      - whatsapp-network
+
+  mongo:
+    image: mongo:6
+    container_name: whatsapp-mongo
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_DATABASE=whatsapp-bot
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - whatsapp-network
+    # Uncomment to expose MongoDB port (not recommended for production)
+    # ports:
+    #   - "27017:27017"
+
+volumes:
+  mongo-data:
+    driver: local
+
+networks:
+  whatsapp-network:
+    driver: bridge

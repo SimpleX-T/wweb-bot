@@ -644,6 +644,7 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 20px;
+  float: right;
   height: 20px;
   padding: 0 6px;
   font-size: var(--font-size-xs);

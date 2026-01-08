@@ -24,7 +24,8 @@ emoji-picker {
 .message-actions {
   position: absolute;
   top: -8px;
-  right: 12px;
+  left: auto;
+  right: auto;
   display: none;
   align-items: center;
   gap: 4px;
@@ -34,6 +35,19 @@ emoji-picker {
   padding: 4px;
   box-shadow: var(--shadow);
   z-index: 10;
+  transform: translateX(0);
+}
+
+/* For incoming messages (left-aligned), position actions on the right side */
+.message.incoming .message-actions {
+  left: auto;
+  right: -18px;
+}
+
+/* For outgoing messages (right-aligned), check if there's enough space */
+.message.outgoing .message-actions {
+  left: auto;
+  right: 12px;
 }
 
 .message:hover .message-actions {
