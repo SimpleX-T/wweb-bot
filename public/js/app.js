@@ -309,12 +309,21 @@ class WhatsAppDashboard {
         const response = await api.getQRCode();
         if (response.data && response.data.qr) {
           this.qrImage.src = response.data.qr;
+        } else if (response.data && response.data.status === "ready") {
+          // Already authenticated
+          this.handleClientReady(response.data);
         } else {
           console.error("No QR code available");
           this.qrLoading.classList.remove("hidden");
           this.qrCode.classList.add("hidden");
         }
       } catch (error) {
+        // If 400, it likely means already authenticated
+        if (error.response && error.response.status === 400) {
+          console.log("Already authenticated (400)");
+          this.checkStatus(); // Re-check status to confirm and transition
+          return;
+        }
         console.error("Failed to fetch QR code:", error);
         this.qrLoading.classList.remove("hidden");
         this.qrCode.classList.add("hidden");
